@@ -2,10 +2,7 @@ name: Daily Stock Alert Bot
 
 on:
   schedule:
-    # Example: 00:15 IST
-  - cron: '25 3 * * *'
-
-  # Optional: allows manual run from GitHub UI
+    - cron: '45 18 * * *'   # 00:15 IST example
   workflow_dispatch:
 
 jobs:
@@ -22,13 +19,12 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Build project
-        run: mvn clean package -DskipTests
+      - name: Build JAR
+        run: mvn -B clean package -DskipTests
 
       - name: Run Stock Agent
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          java -jar target/*.jar
+        run: java -jar target/*.jar
