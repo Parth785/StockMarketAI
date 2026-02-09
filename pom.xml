@@ -11,7 +11,7 @@
 	<groupId>com.ai</groupId>
 	<artifactId>agent</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<packaging>war</packaging>
+	<packaging>jar</packaging>
 	<name>agent</name>
 	<description>AI-Agent</description>
 	<url/>
