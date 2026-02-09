@@ -1,71 +1,125 @@
 package com.ai.agent;
+
 import dev.langchain4j.model.openai.OpenAiChatModel;
+import org.jsoup.Jsoup;
 
 public class StockAgent {
-	public static void main(String[] args) {
-	    try {
-	        // 1. Brain setup (Groq/OpenAI Bridge)
-	        OpenAiChatModel model = OpenAiChatModel.builder()
-	                .apiKey("GROQ_API_KEY") // Replace with your actual Groq API key
-	                .baseUrl("https://api.groq.com/openai/v1")
-	                .modelName("llama-3.3-70b-versatile")
-	                .build();
 
-	        System.out.println("Starting Deep Market Scan...");
+    // Telegram hard-safe limit (keep buffer)
+    private static final int TELEGRAM_LIMIT = 3500;
 
-	        // 2. Fetch all headlines regarding results from Google News
-	        String discoveries = MarketScanner.getMarketWideDiscovery();
+    public static void main(String[] args) {
 
-	        if (discoveries.startsWith("Discovery Error")) {
-	            System.out.println(discoveries);
-	            return;
-	        }
+        try {
+            String groqKey = System.getenv("GROQ_API_KEY");
+            String telegramToken = System.getenv("TELEGRAM_TOKEN");
+            String telegramChatId = System.getenv("TELEGRAM_CHAT_ID");
 
-	        // 3. The Instruction for the AI
-	        /*String prompt = "Analyze these LATEST news headlines from the Indian Stock Market:\n\n" +
-	                discoveries + "\n\n" +
-	                "FILTERING RULES:\n" +
-	                "1. IGNORE headlines that say 'Board to consider results' or 'Meeting scheduled'. These are NOT buy signals.\n" +
-	                "2. ONLY look for companies that have ALREADY announced results today with words like 'Jumps', 'Doubles', 'Surges', or 'Rises by X%'.\n" +
-	                "3. If a company reported a profit jump, check if it's a 'Beat' (above expectations).\n" +
-	                "4. RANK the top candidate based on the STRENGTH of the profit growth (e.g., 100% growth is better than 10%).\n\n" +
-	                "If no headline shows a CLEAR and MASSIVE profit jump, reply with: 'NO EXPLOSIVE OPPORTUNITIES FOUND'.";
-	        */
-	        String prompt = "You are an Indian Alpha-Seeker Bot. Analyze these headlines:\n\n" + discoveries + "\n\n" +
-	        	    "FOR EACH VALID PROFIT JUMP, CALCULATE 'UPPER CIRCUIT PROBABILITY' (0-100%):\n\n" +
-	        	    
-	        	    "SCORING RULES:\n" +
-	        	    "1. MARKET CAP FACTOR:\n" +
-	        	    "   - Small/Mid Cap (e.g., < 10,000 Cr): +30% probability. They move fast.\n" +
-	        	    "   - Large Cap (e.g., Nifty 50): +5% probability. They move slow.\n\n" +
-	        	    
-	        	    "2. SECTOR HOTNESS (2026 Sentiment):\n" +
-	        	    "   - High Heat: Defense, Railways, Renewable Energy, AI/Tech, Jewellers. (+25%)\n" +
-	        	    "   - Moderate: Banking, FMCG, Pharma. (+10%)\n\n" +
-	        	    
-	        	    "3. PROFIT STRENGTH:\n" +
-	        	    "   - Profit Doubled (100%+): +40%\n" +
-	        	    "   - Profit Up 20-50%: +15%\n\n" +
+            if (groqKey == null || telegramToken == null || telegramChatId == null) {
+                throw new RuntimeException("Missing environment variables");
+            }
 
-	        	    "4. PENALTY:\n" +
-	        	    "   - If the headline says 'Revenue Down' despite Profit Up: -20% (Likely cost-cutting, not growth).\n\n" +
+            OpenAiChatModel model = OpenAiChatModel.builder()
+                    .apiKey(groqKey)
+                    .baseUrl("https://api.groq.com/openai/v1")
+                    .modelName("llama-3.1-8b-instant")
+                    .temperature(0.1)
+                    .build();
 
-	        	    "OUTPUT FORMAT:\n" +
-	        	    "--- POTENTIAL CIRCUIT ALERT ---\n" +
-	        	    "Company: [Name]\n" +
-	        	    "News: [Brief summary]\n" +
-	        	    "Sector: [Sector Name]\n" +
-	        	    "UC Probability: [X%]\n" +
-	        	    "Strategy: [e.g., Buy in Pre-Open, Sell at 3:15 PM next day]\n" +
-	        	    "Risk Level: [Low/Med/High]";
-	        String analysis = model.generate(prompt);
+            System.out.println("🚀 Morning Market Scan Started...");
 
-	        System.out.println("\n--- DYNAMIC DISCOVERY REPORT ---");
-	        System.out.println(analysis);
+            String newsData = MarketScanner.getMarketWideDiscovery();
 
-	    } catch (Exception e) {
-	        e.printStackTrace();
-	    }
-	}
+            if (newsData.startsWith("Error") || newsData.equals("NO_VALID_HEADLINES")) {
+                sendTelegram("☕ <b>Morning Update</b>\nNo valid earnings news found today.");
+                return;
+            }
+
+            String prompt =
+                    "You are a professional Indian equity research analyst.\n\n" +
+
+                    "TASK:\n" +
+                    "Analyze the following headlines and find companies with MASSIVE profit growth (50%+).\n\n" +
+                    "RULES:\n" +
+                    "- Ignore board meetings or future announcements\n" +
+                    "- Only ACTUAL reported results\n" +
+                    "FORMAT STRICTLY LIKE THIS:\n\n" +
+                    "<b>🚀 COMPANY NAME</b>\n" +
+                    "📈 News: Short 1-line summary\n" +
+                    "💰 Profit Growth: X%\n" +
+                    "🎯 UC Probability: X%\n" +
+                    "<a href=\"https://www.google.com/finance/quote/SYMBOL:NSE\">View Chart</a>\n\n" +
+
+                    "RULES:\n" +
+                    "- Use ONLY <b> and <a> HTML tags\n" +
+                    "- Keep output concise and professional\n" +
+                    "- Max 5 stocks\n" +
+                    "- If nothing found, reply exactly: NO_NEWS\n\n" +
+
+                    "HEADLINES:\n" + newsData;
+
+            String analysis = model.generate(prompt).trim();
+
+            if (analysis.equalsIgnoreCase("NO_NEWS")) {
+                sendTelegram("☕ <b>Morning Update</b>\nNo explosive profit results found today.");
+            } else {
+                sendTelegramInChunks(analysis);
+            }
+
+        } catch (Exception e) {
+            sendTelegram("❌ <b>Bot Error</b>\n" + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Sends long messages safely by splitting on stock blocks
+     */
+    private static void sendTelegramInChunks(String message) {
+
+        // Split by blank line between stocks
+        String[] blocks = message.split("\n\n");
+        StringBuilder currentMessage = new StringBuilder();
+
+        for (String block : blocks) {
+
+            // If adding this block exceeds Telegram limit → send current chunk
+            if (currentMessage.length() + block.length() > TELEGRAM_LIMIT) {
+                sendTelegram(currentMessage.toString());
+                currentMessage.setLength(0);
+            }
+
+            currentMessage.append(block).append("\n\n");
+        }
+
+        // Send remaining content
+        if (currentMessage.length() > 0) {
+            sendTelegram(currentMessage.toString());
+        }
+    }
+
+    /**
+     * Sends a single Telegram message (HTML-safe, no escaping)
+     */
+    private static void sendTelegram(String message) {
+        try {
+            String token = System.getenv("TELEGRAM_TOKEN");
+            String chatId = System.getenv("TELEGRAM_CHAT_ID");
+
+            String url = "https://api.telegram.org/bot" + token + "/sendMessage";
+
+            Jsoup.connect(url)
+                    .ignoreContentType(true)
+                    .data("chat_id", chatId)
+                    .data("text", message)
+                    .data("parse_mode", "HTML")
+                    .method(org.jsoup.Connection.Method.POST)
+                    .execute();
+
+            System.out.println("✅ Telegram alert sent");
+
+        } catch (Exception e) {
+            System.out.println("❌ Telegram send failed: " + e.getMessage());
+        }
+    }
 }
-
