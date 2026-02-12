@@ -1,9 +1,9 @@
 
 # This GitHub Actions workflow runs a Java-based stock alert bot on a daily schedule. It checks out the repository, sets up Java, builds the JAR file, and then executes the bot with the necessary environment variables for API keys and Telegram credentials.
-name: Daily Stock Alert Bot
+name: Daily Stock Alert Bot v2
 on:
   schedule:
-    - cron: '25 3 * * *'   # 00:15 IST example
+    - cron: '25 19 * * *'   # 00:15 IST example
   workflow_dispatch:
 
 jobs:
